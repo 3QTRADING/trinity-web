@@ -13,7 +13,7 @@ class TrinityLogic:
         self.filepath = filepath
         self.df = self.load_data()
         
-        # ⚙️ 기어별 설정 (S, N, D)
+        # ⚙️ 기어별 매매 밴드 설정 (S, N, D)
         self.GEAR_RANGES = {
             'S': 0.03, # 3%
             'N': 0.05, # 5%
@@ -22,21 +22,22 @@ class TrinityLogic:
         
     def load_data(self):
         """
-        정부장님 DB.csv 형식에 맞춰 강제로 데이터를 뜯어옵니다.
+        정부장님 DB.csv 형식(3번째 줄 헤더)에 맞춰 강제로 데이터를 뜯어옵니다.
         """
         try:
-            # 1. 엑셀 구조상 3번째 줄(Index 2)에 헤더가 있음
+            # 1. 엑셀 구조상 3번째 줄(Index 2)에 헤더가 있음 -> header=2 옵션 필수
             raw = pd.read_csv(self.filepath, header=2)
             
             # 2. [주가 데이터] B열(Date), C열(Close) 추출
-            # 실제 CSV 컬럼 인덱스로 접근 (iloc)
+            # iloc[:, 1:3] -> 1번째(B), 2번째(C) 컬럼
             price_df = raw.iloc[:, 1:3].copy() 
             price_df.columns = ['Date', 'Close']
             price_df['Date'] = pd.to_datetime(price_df['Date'], errors='coerce')
             price_df['Close'] = pd.to_numeric(price_df['Close'], errors='coerce')
             price_df = price_df.dropna().set_index('Date')
 
-            # 3. [기어 데이터] S열(Date), U열(Signal) 추출 (S=18번째, U=20번째)
+            # 3. [기어 데이터] S열(Date), U열(Signal) 추출
+            # S열은 18번째(index 18), U열은 20번째(index 20) -> 직접 지정
             gear_df = raw.iloc[:, [18, 20]].copy()
             gear_df.columns = ['Date', 'Gear']
             gear_df['Date'] = pd.to_datetime(gear_df['Date'], errors='coerce')
@@ -62,7 +63,7 @@ class TrinityLogic:
 
         # 초기 설정
         cash = start_cash
-        virtual_seed = start_cash # 복리 계산용 시드
+        virtual_seed = start_cash # 비대칭 복리 계산용 시드
         holdings = 0
         avg_price = 0
         
@@ -86,7 +87,6 @@ class TrinityLogic:
             
             # 2. 유닛 계산 (8분할)
             unit_val = virtual_seed / 8
-            target_qty = unit_val / close
             
             action = "Hold"
             profit = 0
@@ -98,8 +98,9 @@ class TrinityLogic:
             
             # 4. 매매 판단 (하루 1유닛 스킵 로직)
             
-            # [매수] 가격 < 하단 AND 풀매수 아님
-            current_invested_ratio = (holdings * close) / virtual_seed
+            # [매수] 가격 < 하단 AND 풀매수(0.9 이상) 아님
+            current_invested_ratio = (holdings * close) / virtual_seed if virtual_seed > 0 else 0
+            
             if close <= buy_line and current_invested_ratio < 0.9:
                 if cash >= unit_val:
                     # 매수 실행
@@ -164,7 +165,7 @@ target_file = None
 if os.path.exists('DB.csv'):
     target_file = 'DB.csv'
 else:
-    # DB.csv가 없으면 아무 csv나 잡음
+    # DB.csv가 없으면 폴더 내 아무 csv나 잡음
     csvs = [f for f in glob.glob("*.csv") if "requirements" not in f]
     if csvs: target_file = csvs[0]
 
